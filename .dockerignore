@@ -1,0 +1,15 @@
+.git
+.idea
+.LibraryAI
+__pycache__
+data/
+models/
+.cache/
+Dockerfile
+docker-compose.yml
+.dockerignore
+*.md
+tests/
+.env
+venv/
+plan/

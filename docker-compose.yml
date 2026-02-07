@@ -1,0 +1,28 @@
+services:
+  libraryai:
+    build: .
+    image: libraryai:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./data/raw:/app/data/raw
+      - ./data/processed:/app/data/processed
+      - ./data/vector_store:/app/data/vector_store
+      - model-cache:/models
+    environment:
+      - DATA_DIR=/app/data
+      - HF_HOME=/models
+      - AUTO_DETECT_DEVICE=true
+      - PYTHONUNBUFFERED=1
+      # - HF_TOKEN=hf_your_token_here  # Required for gated Llama model
+    stdin_open: true
+    tty: true
+    command: ["--help"]
+
+volumes:
+  model-cache:

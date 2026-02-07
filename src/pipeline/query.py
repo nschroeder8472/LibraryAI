@@ -1,0 +1,96 @@
+"""Query pipeline orchestration."""
+from typing import Dict, Optional
+import logging
+
+from ..retrieval.retriever import Retriever
+from ..generation.model import LanguageModel
+from ..generation.prompt_templates import PromptTemplates
+from ..embeddings.embedder import Embedder
+from ..embeddings.vector_store import VectorStore
+from ..config import config
+
+logger = logging.getLogger(__name__)
+
+class QueryPipeline:
+    """Orchestrate the RAG query pipeline."""
+
+    def __init__(self, vector_store: VectorStore):
+        """
+        Initialize query pipeline.
+
+        Args:
+            vector_store: Loaded vector store
+        """
+        self.embedder = Embedder(
+            model_name=config.embedding.model_name,
+            device=config.embedding.device
+        )
+
+        self.retriever = Retriever(
+            embedder=self.embedder,
+            vector_store=vector_store,
+            top_k=config.retrieval.top_k,
+            similarity_threshold=config.retrieval.similarity_threshold
+        )
+
+        self.llm = LanguageModel(
+            model_name=config.generation.model_name,
+            device=config.generation.device,
+            max_new_tokens=config.generation.max_new_tokens,
+            temperature=config.generation.temperature,
+            top_p=config.generation.top_p,
+            use_8bit=config.generation.use_8bit,
+            use_4bit=config.generation.use_4bit
+        )
+
+        self.templates = PromptTemplates()
+
+    def query(self, query: str, query_type: str = "qa",
+             reading_history: Optional[str] = None) -> Dict:
+        """
+        Process a query through the RAG pipeline.
+
+        Args:
+            query: User query
+            query_type: Type of query (qa, recommendation, passage_location)
+            reading_history: Optional reading history for recommendations
+
+        Returns:
+            Dictionary with answer and retrieved contexts
+        """
+        logger.info(f"Processing query: {query[:50]}...")
+
+        # Step 1: Retrieve relevant chunks
+        logger.info("Retrieving relevant context...")
+        retrieved_chunks = self.retriever.retrieve(query)
+
+        if not retrieved_chunks:
+            return {
+                "answer": "I couldn't find relevant information in your library to answer this question.",
+                "contexts": [],
+                "query": query
+            }
+
+        # Step 2: Format context
+        context = self.retriever.format_context(retrieved_chunks)
+
+        # Step 3: Select prompt template
+        if query_type == "recommendation":
+            prompt = self.templates.recommendation_prompt(
+                query, context, reading_history
+            )
+        elif query_type == "passage_location":
+            prompt = self.templates.passage_location_prompt(query, context)
+        else:  # default to qa
+            prompt = self.templates.qa_prompt(query, context)
+
+        # Step 4: Generate answer
+        logger.info("Generating answer...")
+        answer = self.llm.generate(prompt)
+
+        return {
+            "answer": answer,
+            "contexts": retrieved_chunks,
+            "query": query,
+            "query_type": query_type
+        }
