@@ -27,7 +27,7 @@
 
   header h1 { font-size: 1.25rem; font-weight: 600; }
 
-  header select {
+  header select, header button {
     padding: 6px 10px;
     border: none;
     border-radius: 6px;
@@ -37,7 +37,12 @@
     cursor: pointer;
   }
 
+  header button:hover { background: rgba(255,255,255,0.25); }
+  header button:disabled { opacity: 0.5; cursor: not-allowed; }
+
   header select option { color: #333; background: #fff; }
+
+  .header-controls { display: flex; gap: 8px; align-items: center; }
 
   #setup-banner {
     display: none;
@@ -226,11 +231,14 @@
 
 <header>
   <h1>LibraryAI</h1>
-  <select id="query-type">
-    <option value="qa">Q&A</option>
-    <option value="recommendation">Recommendation</option>
-    <option value="passage_location">Passage Location</option>
-  </select>
+  <div class="header-controls">
+    <select id="query-type">
+      <option value="qa">Q&A</option>
+      <option value="recommendation">Recommendation</option>
+      <option value="passage_location">Passage Location</option>
+    </select>
+    <button id="reindex-btn" style="display:none;">Re-index Library</button>
+  </div>
 </header>
 
 <div id="setup-banner">
@@ -259,6 +267,7 @@
   const libraryDirInput = document.getElementById("library-dir");
   const indexProgress = document.getElementById("index-progress");
   const indexError = document.getElementById("index-error");
+  const reindexBtn = document.getElementById("reindex-btn");
 
   let pollTimer = null;
 
@@ -333,6 +342,7 @@
 
       if (data.has_index) {
         hideSetupBanner();
+        reindexBtn.style.display = "inline-block";
         addMessage("assistant", "Welcome to LibraryAI! Ask me anything about your ebook library.");
         input.focus();
       } else if (data.indexing) {
@@ -462,6 +472,46 @@
   });
 
   indexBtn.addEventListener("click", startIndexing);
+
+  reindexBtn.addEventListener("click", async function() {
+    reindexBtn.disabled = true;
+    reindexBtn.textContent = "Re-indexing...";
+    try {
+      const res = await fetch("/api/index", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        addMessage("assistant", "Re-index failed: " + (data.error || "Unknown error"));
+        reindexBtn.disabled = false;
+        reindexBtn.textContent = "Re-index Library";
+        return;
+      }
+      addMessage("assistant", data.message + " This may take a few minutes...");
+      const reindexPoll = setInterval(async () => {
+        try {
+          const sr = await fetch("/api/index/status");
+          const sd = await sr.json();
+          if (!sd.active) {
+            clearInterval(reindexPoll);
+            reindexBtn.disabled = false;
+            reindexBtn.textContent = "Re-index Library";
+            if (sd.error) {
+              addMessage("assistant", "Re-indexing failed: " + sd.error);
+            } else {
+              addMessage("assistant", "Re-indexing complete! Your library has been updated.");
+            }
+          }
+        } catch (e) {}
+      }, 2000);
+    } catch (err) {
+      addMessage("assistant", "Error: Could not reach the server. " + err.message);
+      reindexBtn.disabled = false;
+      reindexBtn.textContent = "Re-index Library";
+    }
+  });
 
   // Toggle sources via event delegation
   chat.addEventListener("click", function(e) {

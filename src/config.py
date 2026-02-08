@@ -140,8 +140,9 @@ class RetrievalConfig:
     # Number of top results to retrieve
     top_k: int = 5
 
-    # Minimum similarity score threshold (0-1, higher is more similar)
-    similarity_threshold: float = 0.0
+    # Maximum L2 distance threshold (lower = more similar)
+    # For normalized embeddings, range is 0-4; set to 0 to disable filtering
+    similarity_threshold: float = 0
 
     # FAISS search parameters
     # For L2 distance: smaller values = more similar
@@ -161,7 +162,7 @@ class GenerationConfig:
     """Configuration for language model generation."""
 
     # Model identifier
-    model_name: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    model_name: str = "mistralai/Mistral-7B-Instruct-v0.3"
 
     # Device for inference
     device: str = "cpu"

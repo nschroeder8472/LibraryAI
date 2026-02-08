@@ -44,10 +44,14 @@ class Retriever:
 
         # Filter by threshold (lower L2 distance = more similar)
         # Note: FAISS L2 returns squared distances
-        filtered_results = [
-            r for r in results
-            if r["similarity_score"] < self.similarity_threshold
-        ]
+        # A threshold of 0 disables filtering
+        if self.similarity_threshold > 0:
+            filtered_results = [
+                r for r in results
+                if r["similarity_score"] <= self.similarity_threshold
+            ]
+        else:
+            filtered_results = results
 
         logger.info(f"Retrieved {len(filtered_results)} chunks above threshold")
 

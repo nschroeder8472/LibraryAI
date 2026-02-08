@@ -1,6 +1,6 @@
 """Text chunking utilities."""
 from typing import List, Dict
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import logging
 
 logger = logging.getLogger(__name__)

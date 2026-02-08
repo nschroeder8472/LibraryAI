@@ -2,6 +2,8 @@ services:
   libraryai:
     build: .
     image: libraryai:latest
+    profiles:
+      - cli
     deploy:
       resources:
         reservations:
@@ -19,10 +21,60 @@ services:
       - HF_HOME=/models
       - AUTO_DETECT_DEVICE=true
       - PYTHONUNBUFFERED=1
-      - GENERATION_MODEL=TinyLlama/TinyLlama-1.1B-Chat-v1.0
     stdin_open: true
     tty: true
     command: ["--help"]
+
+  web:
+    image: libraryai:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./data/raw:/app/data/raw
+      - ./data/processed:/app/data/processed
+      - ./data/vector_store:/app/data/vector_store
+      - model-cache:/models
+    environment:
+      - DATA_DIR=/app/data
+      - HF_HOME=/models
+      - AUTO_DETECT_DEVICE=true
+      - PYTHONUNBUFFERED=1
+      # For GPUs with limited VRAM (~8GB), uncomment one of the following:
+      # - USE_4BIT=true    # ~4-5 GB VRAM (slight quality loss)
+      # - USE_8BIT=true    # ~7 GB VRAM (near-identical quality)
+    ports:
+      - "8000:8000"
+    command: ["web", "--host", "0.0.0.0", "--port", "8000"]
+
+  test:
+    image: libraryai:latest
+    profiles:
+      - test
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./tests:/app/tests
+      - ./data/raw:/app/data/raw
+      - ./data/processed:/app/data/processed
+      - ./data/vector_store:/app/data/vector_store
+      - model-cache:/models
+    environment:
+      - DATA_DIR=/app/data
+      - HF_HOME=/models
+      - AUTO_DETECT_DEVICE=true
+      - PYTHONUNBUFFERED=1
+    entrypoint: ["pytest"]
+    command: ["tests/", "-v", "-m", "not slow"]
 
 volumes:
   model-cache:

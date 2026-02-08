@@ -96,7 +96,7 @@ class EPUBParser:
                     continue
 
                 # Try to extract chapter title
-                chapter_title = self._extract_chapter_title(soup)
+                chapter_title = self._extract_chapter_title(soup, len(chapters) + 1)
 
                 chapters.append({
                     "title": chapter_title,
@@ -107,7 +107,7 @@ class EPUBParser:
 
         return chapters
 
-    def _extract_chapter_title(self, soup: BeautifulSoup) -> str:
+    def _extract_chapter_title(self, soup: BeautifulSoup, chapter_number: int = 1) -> str:
         """Extract chapter title from HTML."""
         # Look for common title tags
         for tag in ['h1', 'h2', 'h3', 'title']:
@@ -117,7 +117,7 @@ class EPUBParser:
                 if title:
                     return title
 
-        return f"Chapter {len([])}"
+        return f"Chapter {chapter_number}"
 
     def parse_library(self, library_dir: Path) -> List[Dict]:
         """

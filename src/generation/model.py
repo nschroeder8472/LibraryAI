@@ -82,12 +82,21 @@ class LanguageModel:
         Returns:
             Generated text
         """
+        # Use chat template if the tokenizer supports it (instruction-tuned models)
+        if self.tokenizer.chat_template:
+            messages = [{"role": "user", "content": prompt}]
+            input_text = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            input_text = prompt
+
         # Tokenize
         inputs = self.tokenizer(
-            prompt,
+            input_text,
             return_tensors="pt",
             truncation=True,
-            max_length=2048
+            max_length=8192
         ).to(self.device)
 
         # Generate

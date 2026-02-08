@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile.local
     image: libraryai:local
+    profiles:
+      - cli
     volumes:
       - ./data/raw:/app/data/raw
       - ./data/processed:/app/data/processed
@@ -15,15 +17,11 @@ services:
       - EMBEDDING_DEVICE=cpu
       - GENERATION_DEVICE=cpu
       - PYTHONUNBUFFERED=1
-      - GENERATION_MODEL=TinyLlama/TinyLlama-1.1B-Chat-v1.0
     stdin_open: true
     tty: true
     command: ["--help"]
 
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile.local
     image: libraryai:local
     volumes:
       - ./data/raw:/app/data/raw
@@ -41,10 +39,9 @@ services:
     command: ["web", "--host", "0.0.0.0", "--port", "8000"]
 
   test:
-    build:
-      context: .
-      dockerfile: Dockerfile.local
     image: libraryai:local
+    profiles:
+      - test
     volumes:
       - ./tests:/app/tests
       - ./data/raw:/app/data/raw

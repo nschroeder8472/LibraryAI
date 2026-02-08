@@ -1,6 +1,7 @@
 """FastAPI web interface for LibraryAI."""
 import logging
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -68,26 +69,33 @@ def _run_indexing(library_dir: str):
         indexing_logger.removeHandler(handler)
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Load vector store and query pipeline on startup."""
+    global pipeline
+    try:
+        logger.info("Loading vector store...")
+        vector_store = VectorStore.load(config.data.vector_store_dir)
+        stats = vector_store.get_stats()
+        logger.info(f"Loaded index with {stats['total_vectors']} vectors")
+
+        logger.info("Initializing query pipeline...")
+        pipeline = QueryPipeline(vector_store)
+        logger.info("Query pipeline ready")
+    except Exception as e:
+        logger.warning(f"Could not load existing index: {e}")
+        logger.info("Server starting without index. Build one from the web UI.")
+        pipeline = None
+    yield
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    app = FastAPI(title="LibraryAI", description="RAG-based Q&A for your ebook library")
-
-    @app.on_event("startup")
-    def startup():
-        global pipeline
-        try:
-            logger.info("Loading vector store...")
-            vector_store = VectorStore.load(config.data.vector_store_dir)
-            stats = vector_store.get_stats()
-            logger.info(f"Loaded index with {stats['total_vectors']} vectors")
-
-            logger.info("Initializing query pipeline...")
-            pipeline = QueryPipeline(vector_store)
-            logger.info("Query pipeline ready")
-        except Exception as e:
-            logger.warning(f"Could not load existing index: {e}")
-            logger.info("Server starting without index. Build one from the web UI.")
-            pipeline = None
+    app = FastAPI(
+        title="LibraryAI",
+        description="RAG-based Q&A for your ebook library",
+        lifespan=_lifespan,
+    )
 
     @app.get("/", response_class=HTMLResponse)
     def index():
@@ -168,9 +176,14 @@ def create_app() -> FastAPI:
             )
         try:
             result = pipeline.query(request.query, query_type=request.query_type)
+            # Strip numpy embedding arrays from contexts before JSON serialization
+            contexts = [
+                {k: v for k, v in ctx.items() if k != "embedding"}
+                for ctx in result.get("contexts", [])
+            ]
             return {
                 "answer": result["answer"],
-                "contexts": result.get("contexts", []),
+                "contexts": contexts,
                 "query": result["query"],
                 "query_type": result.get("query_type", request.query_type),
             }
