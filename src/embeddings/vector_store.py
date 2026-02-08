@@ -19,7 +19,7 @@ class VectorStore:
             embedding_dim: Dimension of embeddings
         """
         self.embedding_dim = embedding_dim
-        self.index = faiss.IndexFlatL2(embedding_dim)  # L2 distance
+        self.index = faiss.IndexFlatIP(embedding_dim)  # Inner product (cosine similarity for normalized vectors)
         self.chunks_metadata = []  # Store chunk metadata
         self.is_trained = False
 
@@ -35,8 +35,12 @@ class VectorStore:
         if len(embeddings.shape) == 1:
             embeddings = embeddings.reshape(1, -1)
 
+        # Normalize for cosine similarity via inner product
+        embeddings_float = embeddings.astype('float32')
+        faiss.normalize_L2(embeddings_float)
+
         # Add to FAISS index
-        self.index.add(embeddings.astype('float32'))
+        self.index.add(embeddings_float)
 
         # Store metadata
         self.chunks_metadata.extend(chunks)
@@ -58,19 +62,20 @@ class VectorStore:
         if len(query_embedding.shape) == 1:
             query_embedding = query_embedding.reshape(1, -1)
 
+        # Normalize query for cosine similarity
+        query_float = query_embedding.astype('float32')
+        faiss.normalize_L2(query_float)
+
         # Search FAISS index
-        distances, indices = self.index.search(
-            query_embedding.astype('float32'),
-            top_k
-        )
+        scores, indices = self.index.search(query_float, top_k)
 
         # Retrieve metadata and add scores
+        # For inner product on normalized vectors, score IS cosine similarity (higher = more similar)
         results = []
-        for dist, idx in zip(distances[0], indices[0]):
+        for score, idx in zip(scores[0], indices[0]):
             if idx < len(self.chunks_metadata):
                 chunk = self.chunks_metadata[idx].copy()
-                # Convert L2 distance to similarity score (lower is better)
-                chunk["similarity_score"] = float(dist)
+                chunk["similarity_score"] = float(score)
                 results.append(chunk)
 
         return results

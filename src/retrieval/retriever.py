@@ -42,13 +42,13 @@ class Retriever:
         # Search vector store
         results = self.vector_store.search(query_embedding, self.top_k)
 
-        # Filter by threshold (lower L2 distance = more similar)
-        # Note: FAISS L2 returns squared distances
+        # Filter by threshold (higher cosine similarity = more similar)
+        # Score range is -1 to 1 for cosine similarity
         # A threshold of 0 disables filtering
         if self.similarity_threshold > 0:
             filtered_results = [
                 r for r in results
-                if r["similarity_score"] <= self.similarity_threshold
+                if r["similarity_score"] >= self.similarity_threshold
             ]
         else:
             filtered_results = results
