@@ -72,10 +72,10 @@ class ChunkingConfig:
     """Configuration for text chunking."""
 
     # Chunk size in characters
-    chunk_size: int = 1000
+    chunk_size: int = 1500
 
     # Overlap between chunks in characters
-    chunk_overlap: int = 200
+    chunk_overlap: int = 300
 
     # Text separators for recursive splitting (in order of priority)
     separators: List[str] = None
@@ -106,7 +106,7 @@ class EmbeddingConfig:
     """Configuration for text embeddings."""
 
     # Sentence transformer model name
-    model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    model_name: str = "BAAI/bge-base-en-v1.5"
 
     # Device for inference ('cuda', 'mps', or 'cpu')
     device: str = "cpu"
@@ -117,8 +117,8 @@ class EmbeddingConfig:
     # Normalize embeddings to unit length
     normalize_embeddings: bool = True
 
-    # Expected embedding dimension (384 for all-MiniLM-L6-v2)
-    embedding_dim: int = 384
+    # Expected embedding dimension (768 for bge-base-en-v1.5)
+    embedding_dim: int = 768
 
     def __post_init__(self):
         """Apply env var overrides."""
@@ -138,16 +138,17 @@ class RetrievalConfig:
     """Configuration for retrieval."""
 
     # Number of top results to retrieve
-    top_k: int = 5
+    top_k: int = 10
 
-    # Maximum L2 distance threshold (lower = more similar)
-    # For normalized embeddings, range is 0-4; set to 0 to disable filtering
-    similarity_threshold: float = 0
+    # Maximum distance threshold (lower = more similar)
+    # For cosine distance with normalized embeddings, range is 0-2
+    # 0.4 filters out chunks with cosine similarity < 0.6
+    # Set to 0 to disable filtering
+    similarity_threshold: float = 0.4
 
     # FAISS search parameters
-    # For L2 distance: smaller values = more similar
-    # We use L2 distance by default
-    distance_metric: str = "l2"
+    # Using cosine similarity via inner product on normalized embeddings
+    distance_metric: str = "cosine"
 
     def __post_init__(self):
         """Apply env var overrides."""
@@ -155,6 +156,37 @@ class RetrievalConfig:
             self.top_k = int(os.environ["RETRIEVAL_TOP_K"])
         if os.environ.get("SIMILARITY_THRESHOLD"):
             self.similarity_threshold = float(os.environ["SIMILARITY_THRESHOLD"])
+
+
+@dataclass
+class RerankConfig:
+    """Configuration for cross-encoder reranking."""
+
+    # Whether to enable reranking
+    enabled: bool = True
+
+    # Cross-encoder model name
+    model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+    # Device for inference
+    device: str = "cpu"
+
+    # Number of top results to keep after reranking
+    top_n: int = 5
+
+    def __post_init__(self):
+        """Apply env var overrides."""
+        if os.environ.get("RERANK_ENABLED"):
+            self.enabled = _env_bool("RERANK_ENABLED", default=True)
+        if os.environ.get("RERANK_MODEL"):
+            self.model_name = os.environ["RERANK_MODEL"]
+        if os.environ.get("RERANK_TOP_N"):
+            self.top_n = int(os.environ["RERANK_TOP_N"])
+
+        if os.environ.get("RERANK_DEVICE"):
+            self.device = os.environ["RERANK_DEVICE"]
+        elif _env_bool("AUTO_DETECT_DEVICE", default=True):
+            self.device = _detect_device()
 
 
 @dataclass
@@ -168,11 +200,11 @@ class GenerationConfig:
     device: str = "cpu"
 
     # Generation parameters
-    max_new_tokens: int = 256
-    temperature: float = 0.7
+    max_new_tokens: int = 512
+    temperature: float = 0.1
     top_p: float = 0.9
     top_k: int = 50
-    do_sample: bool = True
+    do_sample: bool = False
 
     # Whether to use 8-bit quantization (requires bitsandbytes)
     use_8bit: bool = False
@@ -211,6 +243,7 @@ class Config:
     chunking: ChunkingConfig = None
     embedding: EmbeddingConfig = None
     retrieval: RetrievalConfig = None
+    rerank: RerankConfig = None
     generation: GenerationConfig = None
 
     def __post_init__(self):
@@ -223,6 +256,8 @@ class Config:
             self.embedding = EmbeddingConfig()
         if self.retrieval is None:
             self.retrieval = RetrievalConfig()
+        if self.rerank is None:
+            self.rerank = RerankConfig()
         if self.generation is None:
             self.generation = GenerationConfig()
 
@@ -246,6 +281,11 @@ class Config:
         lines.append("\nRetrieval Configuration:")
         lines.append(f"  Top K: {self.retrieval.top_k}")
         lines.append(f"  Similarity threshold: {self.retrieval.similarity_threshold}")
+
+        lines.append("\nRerank Configuration:")
+        lines.append(f"  Enabled: {self.rerank.enabled}")
+        lines.append(f"  Model: {self.rerank.model_name}")
+        lines.append(f"  Top N: {self.rerank.top_n}")
 
         lines.append("\nGeneration Configuration:")
         lines.append(f"  Model: {self.generation.model_name}")
