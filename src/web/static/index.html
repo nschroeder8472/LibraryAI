@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LibraryAI</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f0f2f5;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: #2563eb;
+    color: #fff;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  header h1 { font-size: 1.25rem; font-weight: 600; }
+
+  header select {
+    padding: 6px 10px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    cursor: pointer;
+  }
+
+  header select option { color: #333; background: #fff; }
+
+  #setup-banner {
+    display: none;
+    max-width: 480px;
+    margin: 40px auto;
+    padding: 32px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    text-align: center;
+  }
+
+  #setup-banner h2 {
+    font-size: 1.3rem;
+    margin-bottom: 8px;
+    color: #1f2937;
+  }
+
+  #setup-banner p {
+    color: #6b7280;
+    margin-bottom: 20px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  #setup-banner input[type="text"] {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    outline: none;
+    margin-bottom: 12px;
+  }
+
+  #setup-banner input[type="text"]:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+  }
+
+  #index-btn {
+    padding: 10px 24px;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  #index-btn:hover { background: #1d4ed8; }
+  #index-btn:disabled { background: #93c5fd; cursor: not-allowed; }
+
+  #index-progress {
+    display: none;
+    margin-top: 16px;
+    color: #374151;
+    font-size: 0.9rem;
+  }
+
+  #index-error {
+    display: none;
+    margin-top: 12px;
+    color: #dc2626;
+    font-size: 0.9rem;
+  }
+
+  #chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .message {
+    max-width: 75%;
+    padding: 12px 16px;
+    border-radius: 16px;
+    line-height: 1.5;
+    font-size: 0.95rem;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+  }
+
+  .user {
+    align-self: flex-end;
+    background: #2563eb;
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+
+  .assistant {
+    align-self: flex-start;
+    background: #fff;
+    color: #1f2937;
+    border: 1px solid #e5e7eb;
+    border-bottom-left-radius: 4px;
+  }
+
+  .sources-toggle {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: #2563eb;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .sources-toggle:hover { text-decoration: underline; }
+
+  .sources {
+    display: none;
+    margin-top: 8px;
+    padding: 10px;
+    background: #f9fafb;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    color: #374151;
+  }
+
+  .sources.open { display: block; }
+
+  .source-item {
+    padding: 6px 0;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .source-item:last-child { border-bottom: none; }
+
+  .source-title { font-weight: 600; }
+  .source-chapter { color: #6b7280; }
+  .source-score { color: #9ca3af; font-size: 0.75rem; }
+  .source-text { margin-top: 4px; color: #6b7280; font-style: italic; }
+
+  .loading-dots span {
+    animation: blink 1.4s infinite both;
+    font-size: 1.5rem;
+  }
+  .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes blink {
+    0%, 80%, 100% { opacity: 0.2; }
+    40% { opacity: 1; }
+  }
+
+  #input-bar {
+    display: flex;
+    gap: 8px;
+    padding: 12px 20px;
+    background: #fff;
+    border-top: 1px solid #e5e7eb;
+    flex-shrink: 0;
+  }
+
+  #query-input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 20px;
+    font-size: 0.95rem;
+    outline: none;
+  }
+
+  #query-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+
+  #send-btn {
+    padding: 10px 20px;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 20px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  #send-btn:hover { background: #1d4ed8; }
+  #send-btn:disabled { background: #93c5fd; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>LibraryAI</h1>
+  <select id="query-type">
+    <option value="qa">Q&A</option>
+    <option value="recommendation">Recommendation</option>
+    <option value="passage_location">Passage Location</option>
+  </select>
+</header>
+
+<div id="setup-banner">
+  <h2>Welcome to LibraryAI</h2>
+  <p>No index found. Point to your EPUB library and build the index to get started.</p>
+  <input type="text" id="library-dir" placeholder="Path to EPUB directory (leave empty for default)">
+  <button id="index-btn">Build Index</button>
+  <div id="index-progress"></div>
+  <div id="index-error"></div>
+</div>
+
+<div id="chat"></div>
+
+<div id="input-bar">
+  <input type="text" id="query-input" placeholder="Ask about your library..." autocomplete="off">
+  <button id="send-btn">Send</button>
+</div>
+
+<script>
+  const chat = document.getElementById("chat");
+  const input = document.getElementById("query-input");
+  const sendBtn = document.getElementById("send-btn");
+  const queryType = document.getElementById("query-type");
+  const setupBanner = document.getElementById("setup-banner");
+  const indexBtn = document.getElementById("index-btn");
+  const libraryDirInput = document.getElementById("library-dir");
+  const indexProgress = document.getElementById("index-progress");
+  const indexError = document.getElementById("index-error");
+
+  let pollTimer = null;
+
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function scrollToBottom() {
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function addMessage(role, content) {
+    const div = document.createElement("div");
+    div.className = "message " + role;
+    div.innerHTML = content;
+    chat.appendChild(div);
+    scrollToBottom();
+    return div;
+  }
+
+  function addLoadingIndicator() {
+    return addMessage("assistant", '<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>');
+  }
+
+  function buildSourcesHtml(contexts) {
+    if (!contexts || contexts.length === 0) return "";
+    let html = '<span class="sources-toggle">Show sources (' + contexts.length + ')</span>';
+    html += '<div class="sources">';
+    for (const ctx of contexts) {
+      html += '<div class="source-item">';
+      html += '<div class="source-title">' + escapeHtml(ctx.book_title || "Unknown") + '</div>';
+      if (ctx.book_author) {
+        html += '<div class="source-chapter">by ' + escapeHtml(ctx.book_author) + '</div>';
+      }
+      if (ctx.chapter_title) {
+        html += '<div class="source-chapter">Chapter: ' + escapeHtml(ctx.chapter_title) + '</div>';
+      }
+      if (ctx.similarity_score != null) {
+        html += '<div class="source-score">Similarity: ' + ctx.similarity_score.toFixed(4) + '</div>';
+      }
+      if (ctx.text) {
+        const preview = ctx.text.length > 200 ? ctx.text.slice(0, 200) + "..." : ctx.text;
+        html += '<div class="source-text">' + escapeHtml(preview) + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function setChatEnabled(enabled) {
+    input.disabled = !enabled;
+    sendBtn.disabled = !enabled;
+  }
+
+  function showSetupBanner() {
+    setupBanner.style.display = "block";
+    setChatEnabled(false);
+  }
+
+  function hideSetupBanner() {
+    setupBanner.style.display = "none";
+    setChatEnabled(true);
+  }
+
+  async function checkHealth() {
+    try {
+      const res = await fetch("/api/health");
+      const data = await res.json();
+
+      if (data.has_index) {
+        hideSetupBanner();
+        addMessage("assistant", "Welcome to LibraryAI! Ask me anything about your ebook library.");
+        input.focus();
+      } else if (data.indexing) {
+        showSetupBanner();
+        indexBtn.disabled = true;
+        indexProgress.style.display = "block";
+        indexProgress.textContent = "Indexing in progress...";
+        startPolling();
+      } else {
+        showSetupBanner();
+      }
+    } catch (err) {
+      addMessage("assistant", "Could not reach the server. Please refresh the page.");
+    }
+  }
+
+  async function startIndexing() {
+    indexBtn.disabled = true;
+    indexError.style.display = "none";
+    indexProgress.style.display = "block";
+    indexProgress.textContent = "Starting...";
+
+    const body = {};
+    const dir = libraryDirInput.value.trim();
+    if (dir) body.library_dir = dir;
+
+    try {
+      const res = await fetch("/api/index", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        indexError.style.display = "block";
+        indexError.textContent = data.error || "Failed to start indexing";
+        indexBtn.disabled = false;
+        indexProgress.style.display = "none";
+        return;
+      }
+
+      indexProgress.textContent = data.message;
+      startPolling();
+    } catch (err) {
+      indexError.style.display = "block";
+      indexError.textContent = "Could not reach the server: " + err.message;
+      indexBtn.disabled = false;
+      indexProgress.style.display = "none";
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(pollStatus, 2000);
+  }
+
+  async function pollStatus() {
+    try {
+      const res = await fetch("/api/index/status");
+      const data = await res.json();
+
+      if (data.active) {
+        indexProgress.textContent = data.progress || data.message || "Working...";
+      } else if (data.error) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        indexProgress.style.display = "none";
+        indexError.style.display = "block";
+        indexError.textContent = "Indexing failed: " + data.error;
+        indexBtn.disabled = false;
+      } else {
+        // Done successfully
+        clearInterval(pollTimer);
+        pollTimer = null;
+        hideSetupBanner();
+        addMessage("assistant", "Index built successfully! Ask me anything about your ebook library.");
+        input.focus();
+      }
+    } catch (err) {
+      // Keep polling on transient errors
+    }
+  }
+
+  async function sendQuery() {
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = "";
+    sendBtn.disabled = true;
+
+    addMessage("user", escapeHtml(text));
+    const loading = addLoadingIndicator();
+
+    try {
+      const res = await fetch("/api/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: text, query_type: queryType.value }),
+      });
+
+      const data = await res.json();
+      chat.removeChild(loading);
+
+      if (data.error) {
+        addMessage("assistant", escapeHtml("Error: " + data.error));
+      } else {
+        const answerHtml = escapeHtml(data.answer) + buildSourcesHtml(data.contexts);
+        addMessage("assistant", answerHtml);
+      }
+    } catch (err) {
+      chat.removeChild(loading);
+      addMessage("assistant", escapeHtml("Error: Could not reach the server. " + err.message));
+    } finally {
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  }
+
+  // Event listeners
+  sendBtn.addEventListener("click", sendQuery);
+  input.addEventListener("keydown", function(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendQuery();
+    }
+  });
+
+  indexBtn.addEventListener("click", startIndexing);
+
+  // Toggle sources via event delegation
+  chat.addEventListener("click", function(e) {
+    if (e.target.classList.contains("sources-toggle")) {
+      const sources = e.target.nextElementSibling;
+      if (sources) {
+        sources.classList.toggle("open");
+        e.target.textContent = sources.classList.contains("open")
+          ? "Hide sources (" + sources.children.length + ")"
+          : "Show sources (" + sources.children.length + ")";
+      }
+    }
+  });
+
+  // Check health on load to determine UI state
+  checkHealth();
+</script>
+
+</body>
+</html>

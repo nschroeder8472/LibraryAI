@@ -19,7 +19,7 @@ services:
       - HF_HOME=/models
       - AUTO_DETECT_DEVICE=true
       - PYTHONUNBUFFERED=1
-      # - HF_TOKEN=hf_your_token_here  # Required for gated Llama model
+      - GENERATION_MODEL=TinyLlama/TinyLlama-1.1B-Chat-v1.0
     stdin_open: true
     tty: true
     command: ["--help"]

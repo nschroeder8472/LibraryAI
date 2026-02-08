@@ -161,7 +161,7 @@ class GenerationConfig:
     """Configuration for language model generation."""
 
     # Model identifier
-    model_name: str = "meta-llama/Llama-3.2-1B"
+    model_name: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
     # Device for inference
     device: str = "cpu"

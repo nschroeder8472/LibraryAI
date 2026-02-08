@@ -1,0 +1,64 @@
+services:
+  libraryai:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    image: libraryai:local
+    volumes:
+      - ./data/raw:/app/data/raw
+      - ./data/processed:/app/data/processed
+      - ./data/vector_store:/app/data/vector_store
+      - model-cache:/models
+    environment:
+      - DATA_DIR=/app/data
+      - HF_HOME=/models
+      - EMBEDDING_DEVICE=cpu
+      - GENERATION_DEVICE=cpu
+      - PYTHONUNBUFFERED=1
+      - GENERATION_MODEL=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+    stdin_open: true
+    tty: true
+    command: ["--help"]
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    image: libraryai:local
+    volumes:
+      - ./data/raw:/app/data/raw
+      - ./data/processed:/app/data/processed
+      - ./data/vector_store:/app/data/vector_store
+      - model-cache:/models
+    environment:
+      - DATA_DIR=/app/data
+      - HF_HOME=/models
+      - EMBEDDING_DEVICE=cpu
+      - GENERATION_DEVICE=cpu
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8000:8000"
+    command: ["web", "--host", "0.0.0.0", "--port", "8000"]
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    image: libraryai:local
+    volumes:
+      - ./tests:/app/tests
+      - ./data/raw:/app/data/raw
+      - ./data/processed:/app/data/processed
+      - ./data/vector_store:/app/data/vector_store
+      - model-cache:/models
+    environment:
+      - DATA_DIR=/app/data
+      - HF_HOME=/models
+      - EMBEDDING_DEVICE=cpu
+      - GENERATION_DEVICE=cpu
+      - PYTHONUNBUFFERED=1
+    entrypoint: ["pytest"]
+    command: ["tests/", "-v", "-m", "not slow"]
+
+volumes:
+  model-cache:

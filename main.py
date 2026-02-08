@@ -38,7 +38,7 @@ def index_command(args):
         return 1
 
     # Check for EPUB files
-    epub_files = list(library_dir.glob("*.epub"))
+    epub_files = list(library_dir.glob("**/*.epub"))
     if not epub_files:
         logger.error(f"No EPUB files found in {library_dir}")
         logger.info("Please add EPUB files to the directory and try again.")
@@ -225,6 +225,29 @@ def interactive_command(args):
         return 1
 
 
+def web_command(args):
+    """Handle the web command."""
+    logger = logging.getLogger(__name__)
+
+    index_path = config.data.vector_store_dir / "faiss_index.bin"
+    if not index_path.exists():
+        print("Note: No index found. You can build one from the web UI.")
+
+    try:
+        import uvicorn
+        from src.web.app import create_app
+    except ImportError:
+        print("Error: Web dependencies not installed.")
+        print("Please install them with:")
+        print("  pip install fastapi 'uvicorn[standard]'")
+        return 1
+
+    app = create_app()
+    print(f"Starting LibraryAI web server on http://{args.host}:{args.port}")
+    uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -292,6 +315,24 @@ Examples:
         help="Enter interactive query mode"
     )
 
+    # Web command
+    web_parser = subparsers.add_parser(
+        "web",
+        help="Start web chat interface"
+    )
+    web_parser.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Host to bind to (default: 0.0.0.0)"
+    )
+    web_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to listen on (default: 8000)"
+    )
+
     args = parser.parse_args()
 
     # Setup logging
@@ -310,6 +351,8 @@ Examples:
         return query_command(args)
     elif args.command == "interactive":
         return interactive_command(args)
+    elif args.command == "web":
+        return web_command(args)
     else:
         parser.print_help()
         return 0

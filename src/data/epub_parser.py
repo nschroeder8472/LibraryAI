@@ -130,7 +130,7 @@ class EPUBParser:
             List of parsed book dictionaries
         """
         library = []
-        epub_files = list(library_dir.glob("*.epub"))
+        epub_files = list(library_dir.glob("**/*.epub"))
 
         logger.info(f"Found {len(epub_files)} EPUB files in {library_dir}")
 
