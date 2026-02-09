@@ -50,8 +50,8 @@ def main():
     logger = logging.getLogger(__name__)
 
     # Check if index exists
-    index_path = config.data.vector_store_dir / "faiss_index.bin"
-    if not index_path.exists():
+    chroma_dir = config.data.vector_store_dir / "chroma.sqlite3"
+    if not chroma_dir.exists():
         print("Error: Vector index not found.")
         print(f"Please build the index first using:")
         print(f"  python scripts/build_index.py")

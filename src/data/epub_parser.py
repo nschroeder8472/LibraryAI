@@ -49,12 +49,14 @@ class EPUBParser:
             raise
 
     def _extract_metadata(self, book: epub.EpubBook) -> Dict:
-        """Extract metadata from EPUB."""
+        """Extract metadata from EPUB, including Calibre series fields."""
         metadata = {
             "title": "Unknown",
             "author": "Unknown",
             "language": "en",
-            "identifier": ""
+            "identifier": "",
+            "series": None,
+            "series_index": None,
         }
 
         # Title
@@ -76,6 +78,21 @@ class EPUBParser:
         identifier = book.get_metadata('DC', 'identifier')
         if identifier:
             metadata["identifier"] = identifier[0][0]
+
+        # Calibre series metadata (OPF namespace)
+        # Calibre stores series info as <meta name="calibre:series" content="..."/>
+        try:
+            opf_meta = book.get_metadata('OPF', 'meta')
+            if opf_meta:
+                for value, attrs in opf_meta:
+                    name = attrs.get('name', '')
+                    content = attrs.get('content', '')
+                    if name == 'calibre:series' and content:
+                        metadata["series"] = content
+                    elif name == 'calibre:series_index' and content:
+                        metadata["series_index"] = content
+        except Exception:
+            pass  # OPF metadata not available in all EPUBs
 
         return metadata
 

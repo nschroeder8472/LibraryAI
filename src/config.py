@@ -45,9 +45,8 @@ class DataConfig:
     processed_dir: Path = data_dir / "processed"
     vector_store_dir: Path = data_dir / "vector_store"
 
-    # Index files
-    vector_index_path: Path = vector_store_dir / "faiss_index.bin"
-    metadata_path: Path = vector_store_dir / "metadata.json"
+    # Series config file
+    series_config_path: Path = data_dir / "series.json"
 
     def __post_init__(self):
         """Apply env var overrides and ensure all directories exist."""
@@ -57,10 +56,7 @@ class DataConfig:
         self.raw_dir = Path(os.environ.get("RAW_DIR", str(self.data_dir / "raw")))
         self.processed_dir = Path(os.environ.get("PROCESSED_DIR", str(self.data_dir / "processed")))
         self.vector_store_dir = Path(os.environ.get("VECTOR_STORE_DIR", str(self.data_dir / "vector_store")))
-
-        # Recompute derived paths
-        self.vector_index_path = self.vector_store_dir / "faiss_index.bin"
-        self.metadata_path = self.vector_store_dir / "metadata.json"
+        self.series_config_path = Path(os.environ.get("SERIES_CONFIG", str(self.data_dir / "series.json")))
 
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir.mkdir(parents=True, exist_ok=True)
@@ -69,13 +65,27 @@ class DataConfig:
 
 @dataclass
 class ChunkingConfig:
-    """Configuration for text chunking."""
+    """Configuration for text chunking.
 
-    # Chunk size in characters
-    chunk_size: int = 1500
+    Supports hierarchical (parent-child) chunking: small child chunks
+    for precise embedding retrieval, linked to larger parent chunks
+    that provide richer context to the LLM.
+    """
 
-    # Overlap between chunks in characters
-    chunk_overlap: int = 300
+    # Child chunk size in characters (used for embedding/retrieval)
+    chunk_size: int = 450
+
+    # Overlap between consecutive child chunks
+    chunk_overlap: int = 50
+
+    # Parent chunk size in characters (sent to LLM as context)
+    parent_chunk_size: int = 1500
+
+    # Overlap between parent chunks
+    parent_chunk_overlap: int = 200
+
+    # Whether to use hierarchical (parent-child) chunking
+    use_hierarchical: bool = True
 
     # Text separators for recursive splitting (in order of priority)
     separators: List[str] = None
@@ -89,6 +99,12 @@ class ChunkingConfig:
             self.chunk_size = int(os.environ["CHUNK_SIZE"])
         if os.environ.get("CHUNK_OVERLAP"):
             self.chunk_overlap = int(os.environ["CHUNK_OVERLAP"])
+        if os.environ.get("PARENT_CHUNK_SIZE"):
+            self.parent_chunk_size = int(os.environ["PARENT_CHUNK_SIZE"])
+        if os.environ.get("PARENT_CHUNK_OVERLAP"):
+            self.parent_chunk_overlap = int(os.environ["PARENT_CHUNK_OVERLAP"])
+        if os.environ.get("USE_HIERARCHICAL_CHUNKING"):
+            self.use_hierarchical = _env_bool("USE_HIERARCHICAL_CHUNKING", default=True)
 
         if self.separators is None:
             self.separators = [
@@ -137,17 +153,14 @@ class EmbeddingConfig:
 class RetrievalConfig:
     """Configuration for retrieval."""
 
-    # Number of top results to retrieve
-    top_k: int = 10
+    # Number of top results to retrieve from vector store (before reranking)
+    top_k: int = 25
 
-    # Maximum distance threshold (lower = more similar)
-    # For cosine distance with normalized embeddings, range is 0-2
-    # 0.4 filters out chunks with cosine similarity < 0.6
+    # Minimum cosine similarity threshold (0-1, higher = stricter)
     # Set to 0 to disable filtering
-    similarity_threshold: float = 0.4
+    similarity_threshold: float = 0.3
 
-    # FAISS search parameters
-    # Using cosine similarity via inner product on normalized embeddings
+    # Distance metric used by vector store
     distance_metric: str = "cosine"
 
     def __post_init__(self):
@@ -270,8 +283,10 @@ class Config:
         lines.append(f"  Vector store directory: {self.data.vector_store_dir}")
 
         lines.append("\nChunking Configuration:")
-        lines.append(f"  Chunk size: {self.chunking.chunk_size}")
-        lines.append(f"  Chunk overlap: {self.chunking.chunk_overlap}")
+        lines.append(f"  Child chunk size: {self.chunking.chunk_size}")
+        lines.append(f"  Child chunk overlap: {self.chunking.chunk_overlap}")
+        lines.append(f"  Parent chunk size: {self.chunking.parent_chunk_size}")
+        lines.append(f"  Hierarchical: {self.chunking.use_hierarchical}")
 
         lines.append("\nEmbedding Configuration:")
         lines.append(f"  Model: {self.embedding.model_name}")

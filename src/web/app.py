@@ -3,6 +3,7 @@ import logging
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -21,9 +22,16 @@ indexing_status: dict = {"active": False, "message": "", "progress": "", "error"
 _indexing_lock = threading.Lock()
 
 
+class ScopeModel(BaseModel):
+    type: str = ""  # "book", "series", or ""
+    title: Optional[str] = None
+    name: Optional[str] = None
+
+
 class QueryRequest(BaseModel):
     query: str
     query_type: str = "qa"
+    scope: Optional[ScopeModel] = None
 
 
 class IndexRequest(BaseModel):
@@ -118,6 +126,23 @@ def create_app() -> FastAPI:
                 result["message"] = str(e)
         return result
 
+    @app.get("/api/library")
+    def library_info():
+        """Get library structure: series and ungrouped books."""
+        if pipeline is None:
+            return JSONResponse(
+                content={"error": "No index available"},
+                status_code=503,
+            )
+        try:
+            return pipeline.retriever.vector_store.get_unique_series()
+        except Exception as e:
+            logger.error(f"Failed to get library info: {e}", exc_info=True)
+            return JSONResponse(
+                content={"error": str(e)},
+                status_code=500,
+            )
+
     @app.post("/api/index")
     def start_indexing(request: IndexRequest):
         library_dir = request.library_dir or str(config.data.raw_dir)
@@ -175,10 +200,25 @@ def create_app() -> FastAPI:
                 status_code=503,
             )
         try:
-            result = pipeline.query(request.query, query_type=request.query_type)
-            # Strip numpy embedding arrays from contexts before JSON serialization
+            # Convert scope model to dict for the pipeline
+            scope = None
+            if request.scope and request.scope.type:
+                scope = {"type": request.scope.type}
+                if request.scope.title:
+                    scope["title"] = request.scope.title
+                if request.scope.name:
+                    scope["name"] = request.scope.name
+
+            result = pipeline.query(
+                request.query,
+                query_type=request.query_type,
+                scope=scope,
+            )
+            # Strip numpy embedding arrays and parent_text from contexts
+            # before JSON serialization
             contexts = [
-                {k: v for k, v in ctx.items() if k != "embedding"}
+                {k: v for k, v in ctx.items()
+                 if k not in ("embedding", "parent_text", "child_text", "parent_id")}
                 for ctx in result.get("contexts", [])
             ]
             return {

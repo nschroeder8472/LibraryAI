@@ -3,7 +3,7 @@
 Build vector index from EPUB library.
 
 This script parses EPUB files, chunks them, generates embeddings,
-and builds a FAISS vector store for retrieval.
+and builds a ChromaDB vector store for retrieval.
 """
 
 import argparse

@@ -56,7 +56,8 @@ class QueryPipeline:
         self.templates = PromptTemplates()
 
     def query(self, query: str, query_type: str = "qa",
-             reading_history: Optional[str] = None) -> Dict:
+             reading_history: Optional[str] = None,
+             scope: Optional[Dict] = None) -> Dict:
         """
         Process a query through the RAG pipeline.
 
@@ -64,15 +65,18 @@ class QueryPipeline:
             query: User query
             query_type: Type of query (qa, recommendation, passage_location)
             reading_history: Optional reading history for recommendations
+            scope: Optional scope filter for book/series-specific queries,
+                   e.g. {"type": "book", "title": "..."} or
+                        {"type": "series", "name": "..."}
 
         Returns:
             Dictionary with answer and retrieved contexts
         """
         logger.info(f"Processing query: {query[:50]}...")
 
-        # Step 1: Retrieve relevant chunks
+        # Step 1: Retrieve relevant chunks (with optional scope filtering)
         logger.info("Retrieving relevant context...")
-        retrieved_chunks = self.retriever.retrieve(query)
+        retrieved_chunks = self.retriever.retrieve(query, scope=scope)
 
         if not retrieved_chunks:
             return {

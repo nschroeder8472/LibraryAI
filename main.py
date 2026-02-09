@@ -79,8 +79,8 @@ def query_command(args):
     logger = logging.getLogger(__name__)
 
     # Check if index exists
-    index_path = config.data.vector_store_dir / "faiss_index.bin"
-    if not index_path.exists():
+    chroma_dir = config.data.vector_store_dir / "chroma.sqlite3"
+    if not chroma_dir.exists():
         print("Error: Vector index not found.")
         print(f"Please build the index first using:")
         print(f"  python main.py index --library-dir data/raw")
@@ -134,8 +134,8 @@ def interactive_command(args):
     logger = logging.getLogger(__name__)
 
     # Check if index exists
-    index_path = config.data.vector_store_dir / "faiss_index.bin"
-    if not index_path.exists():
+    chroma_dir = config.data.vector_store_dir / "chroma.sqlite3"
+    if not chroma_dir.exists():
         print("Error: Vector index not found.")
         print(f"Please build the index first using:")
         print(f"  python main.py index --library-dir data/raw")
@@ -229,8 +229,8 @@ def web_command(args):
     """Handle the web command."""
     logger = logging.getLogger(__name__)
 
-    index_path = config.data.vector_store_dir / "faiss_index.bin"
-    if not index_path.exists():
+    chroma_dir = config.data.vector_store_dir / "chroma.sqlite3"
+    if not chroma_dir.exists():
         print("Note: No index found. You can build one from the web UI.")
 
     try:
