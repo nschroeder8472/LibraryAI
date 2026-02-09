@@ -13,11 +13,13 @@ from ..embeddings.vector_store import VectorStore
 from ..pipeline.indexing import IndexingPipeline
 from ..pipeline.query import QueryPipeline
 from ..config import config
+from .session import SessionManager
 
 logger = logging.getLogger(__name__)
 
 # Module-level state
 pipeline: QueryPipeline | None = None
+session_manager = SessionManager()
 indexing_status: dict = {"active": False, "message": "", "progress": "", "error": None}
 _indexing_lock = threading.Lock()
 
@@ -32,6 +34,7 @@ class QueryRequest(BaseModel):
     query: str
     query_type: str = "qa"
     scope: Optional[ScopeModel] = None
+    session_id: Optional[str] = None
 
 
 class IndexRequest(BaseModel):
@@ -143,6 +146,26 @@ def create_app() -> FastAPI:
                 status_code=500,
             )
 
+    # --- Session endpoints ---
+
+    @app.post("/api/session/new")
+    def new_session():
+        """Create a new conversation session."""
+        session = session_manager.create_session()
+        return {"session_id": session.session_id}
+
+    @app.post("/api/session/{session_id}/clear")
+    def clear_session(session_id: str):
+        """Clear conversation history for a session."""
+        if session_manager.clear_session(session_id):
+            return {"status": "cleared", "session_id": session_id}
+        return JSONResponse(
+            content={"error": "Session not found"},
+            status_code=404,
+        )
+
+    # --- Indexing endpoints ---
+
     @app.post("/api/index")
     def start_indexing(request: IndexRequest):
         library_dir = request.library_dir or str(config.data.raw_dir)
@@ -188,6 +211,8 @@ def create_app() -> FastAPI:
     def index_status():
         return indexing_status
 
+    # --- Query endpoint ---
+
     @app.post("/api/query")
     def query(request: QueryRequest):
         if pipeline is None:
@@ -200,7 +225,11 @@ def create_app() -> FastAPI:
                 status_code=503,
             )
         try:
-            # Convert scope model to dict for the pipeline
+            # Get or create session
+            session = session_manager.get_or_create_session(request.session_id)
+            session_id = session.session_id
+
+            # Update scope if provided
             scope = None
             if request.scope and request.scope.type:
                 scope = {"type": request.scope.type}
@@ -208,14 +237,28 @@ def create_app() -> FastAPI:
                     scope["title"] = request.scope.title
                 if request.scope.name:
                     scope["name"] = request.scope.name
+                session.scope = scope
 
+            # Get conversation history for the prompt
+            conversation_history = session.format_history_for_prompt(
+                max_turns=pipeline.max_conversation_turns
+            )
+
+            # Record user message in session
+            session_manager.add_message(session_id, "user", request.query)
+
+            # Run query with conversation context
             result = pipeline.query(
                 request.query,
                 query_type=request.query_type,
                 scope=scope,
+                conversation_history=conversation_history,
             )
-            # Strip numpy embedding arrays and parent_text from contexts
-            # before JSON serialization
+
+            # Record assistant response in session
+            session_manager.add_message(session_id, "assistant", result["answer"])
+
+            # Strip non-serializable fields from contexts
             contexts = [
                 {k: v for k, v in ctx.items()
                  if k not in ("embedding", "parent_text", "child_text", "parent_id")}
@@ -226,6 +269,7 @@ def create_app() -> FastAPI:
                 "contexts": contexts,
                 "query": result["query"],
                 "query_type": result.get("query_type", request.query_type),
+                "session_id": session_id,
             }
         except Exception as e:
             logger.error(f"Query failed: {e}", exc_info=True)

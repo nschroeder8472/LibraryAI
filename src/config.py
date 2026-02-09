@@ -122,7 +122,7 @@ class EmbeddingConfig:
     """Configuration for text embeddings."""
 
     # Sentence transformer model name
-    model_name: str = "BAAI/bge-base-en-v1.5"
+    model_name: str = "nomic-ai/nomic-embed-text-v1.5"
 
     # Device for inference ('cuda', 'mps', or 'cpu')
     device: str = "cpu"
@@ -179,13 +179,13 @@ class RerankConfig:
     enabled: bool = True
 
     # Cross-encoder model name
-    model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2"
 
     # Device for inference
     device: str = "cpu"
 
     # Number of top results to keep after reranking
-    top_n: int = 5
+    top_n: int = 8
 
     def __post_init__(self):
         """Apply env var overrides."""
@@ -204,12 +204,23 @@ class RerankConfig:
 
 @dataclass
 class GenerationConfig:
-    """Configuration for language model generation."""
+    """Configuration for language model generation.
 
-    # Model identifier
+    Supports multiple backends: 'local' (HuggingFace), 'openai', 'anthropic', 'ollama'.
+    Set GENERATION_BACKEND env var to switch.
+    """
+
+    # Backend provider: 'local', 'openai', 'anthropic', 'ollama'
+    backend: str = "local"
+
+    # Model identifier (meaning depends on backend)
+    # local: HuggingFace model name
+    # openai: OpenAI model name (e.g. gpt-4o-mini)
+    # anthropic: Anthropic model name (e.g. claude-sonnet-4-20250514)
+    # ollama: Ollama model name (e.g. llama3.2)
     model_name: str = "mistralai/Mistral-7B-Instruct-v0.3"
 
-    # Device for inference
+    # Device for inference (local backend only)
     device: str = "cpu"
 
     # Generation parameters
@@ -219,14 +230,17 @@ class GenerationConfig:
     top_k: int = 50
     do_sample: bool = False
 
-    # Whether to use 8-bit quantization (requires bitsandbytes)
+    # Quantization (local backend only)
     use_8bit: bool = False
-
-    # Whether to use 4-bit quantization (requires bitsandbytes)
     use_4bit: bool = False
+
+    # Maximum conversation history turns to include in prompt
+    max_conversation_turns: int = 5
 
     def __post_init__(self):
         """Apply env var overrides."""
+        if os.environ.get("GENERATION_BACKEND"):
+            self.backend = os.environ["GENERATION_BACKEND"]
         if os.environ.get("GENERATION_MODEL"):
             self.model_name = os.environ["GENERATION_MODEL"]
         if os.environ.get("MAX_NEW_TOKENS"):
@@ -241,6 +255,8 @@ class GenerationConfig:
             self.use_8bit = _env_bool("USE_8BIT")
         if os.environ.get("USE_4BIT"):
             self.use_4bit = _env_bool("USE_4BIT")
+        if os.environ.get("MAX_CONVERSATION_TURNS"):
+            self.max_conversation_turns = int(os.environ["MAX_CONVERSATION_TURNS"])
 
         if os.environ.get("GENERATION_DEVICE"):
             self.device = os.environ["GENERATION_DEVICE"]
@@ -303,9 +319,11 @@ class Config:
         lines.append(f"  Top N: {self.rerank.top_n}")
 
         lines.append("\nGeneration Configuration:")
+        lines.append(f"  Backend: {self.generation.backend}")
         lines.append(f"  Model: {self.generation.model_name}")
         lines.append(f"  Device: {self.generation.device}")
         lines.append(f"  Max new tokens: {self.generation.max_new_tokens}")
+        lines.append(f"  Max conversation turns: {self.generation.max_conversation_turns}")
 
         return "\n".join(lines)
 
