@@ -5,6 +5,7 @@ The backend is selected via the GENERATION_BACKEND environment variable.
 All inference runs locally — no data leaves your machine.
 """
 from abc import ABC, abstractmethod
+from typing import Generator
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,13 @@ class BaseLanguageModel(ABC):
     def generate(self, prompt: str) -> str:
         """Generate text from a prompt."""
         ...
+
+    def generate_stream(self, prompt: str) -> Generator[str, None, None]:
+        """Stream text token-by-token. Override for native streaming.
+
+        Default implementation falls back to non-streaming generate().
+        """
+        yield self.generate(prompt)
 
 
 class LocalLanguageModel(BaseLanguageModel):
@@ -154,6 +162,50 @@ class OllamaLanguageModel(BaseLanguageModel):
             ) from e
 
         return data.get("response", "").strip()
+
+    def generate_stream(self, prompt: str) -> Generator[str, None, None]:
+        """Stream tokens from Ollama's /api/generate endpoint."""
+        import urllib.request
+        import json
+
+        url = f"{self.base_url}/api/generate"
+        payload = json.dumps({
+            "model": self.model_name,
+            "prompt": prompt,
+            "stream": True,
+            "options": {
+                "num_predict": self.max_new_tokens,
+                "temperature": self.temperature,
+            },
+        }).encode()
+
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=120)
+        except urllib.error.URLError as e:
+            raise ConnectionError(
+                f"Could not connect to Ollama at {self.base_url}. "
+                f"Make sure Ollama is running (ollama serve). Error: {e}"
+            ) from e
+
+        try:
+            for line in resp:
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                token = chunk.get("response", "")
+                if token:
+                    yield token
+                if chunk.get("done", False):
+                    break
+        finally:
+            resp.close()
 
 
 # Keep backward-compatible alias

@@ -20,6 +20,19 @@
     --logs-w: 360px;
   }
 
+  [data-theme="dark"] {
+    --primary: #3b82f6;
+    --primary-hover: #60a5fa;
+    --primary-light: rgba(59,130,246,0.12);
+    --bg: #111827;
+    --surface: #1f2937;
+    --border: #374151;
+    --text: #f3f4f6;
+    --text-muted: #9ca3af;
+    --text-faint: #6b7280;
+    --danger: #ef4444;
+  }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
@@ -410,6 +423,38 @@
   .log-level-ERROR { color: #dc2626; font-weight: 600; }
   .log-level-DEBUG { color: var(--text-faint); }
 
+  /* ===== Markdown in messages ===== */
+  .message.assistant p { margin: 0 0 8px 0; }
+  .message.assistant p:last-child { margin-bottom: 0; }
+  .message.assistant ul, .message.assistant ol { margin: 4px 0 8px 20px; }
+  .message.assistant li { margin: 2px 0; }
+  .message.assistant strong { font-weight: 600; }
+  .message.assistant em { font-style: italic; }
+  .message.assistant code {
+    background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 3px;
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.88em;
+  }
+  [data-theme="dark"] .message.assistant code { background: rgba(255,255,255,0.08); }
+  .message.assistant blockquote {
+    border-left: 3px solid var(--primary);
+    padding-left: 10px;
+    margin: 8px 0;
+    color: var(--text-muted);
+  }
+  .message.assistant h1, .message.assistant h2, .message.assistant h3 {
+    font-size: 1em;
+    font-weight: 600;
+    margin: 8px 0 4px 0;
+  }
+
+  /* ===== Dark mode toggle ===== */
+  #theme-toggle {
+    background: none; border: none; color: #fff; cursor: pointer;
+    font-size: 1.1rem; padding: 4px 6px; border-radius: 4px;
+  }
+  #theme-toggle:hover { background: rgba(255,255,255,0.15); }
+
   /* ===== Responsive ===== */
   @media (max-width: 768px) {
     .sidebar { position: absolute; left: 0; top: 0; bottom: 0; z-index: 20; box-shadow: 2px 0 8px rgba(0,0,0,0.1); }
@@ -436,6 +481,7 @@
     <button id="new-chat-btn" title="Start a new conversation">New Chat</button>
     <button id="reindex-btn" style="display:none;">Re-index</button>
     <button id="logs-toggle-btn" title="Toggle logs panel">Logs</button>
+    <button id="theme-toggle" title="Toggle dark mode">&#9789;</button>
   </div>
 </header>
 
@@ -519,6 +565,7 @@
   const logsCloseBtn = document.getElementById("logs-close-btn");
   const logsContent = document.getElementById("logs-content");
   const summarizeBtn = document.getElementById("summarize-btn");
+  const themeToggle = document.getElementById("theme-toggle");
 
   // State
   let sessionId = null;
@@ -789,7 +836,9 @@
             if (sd.error) {
               addMessage("assistant", "Summary failed: " + sd.error);
             } else if (sd.result) {
-              addMessage("assistant", sd.result.summary);
+              const sumDiv = addMessage("assistant", "");
+              sumDiv.style.whiteSpace = "normal";
+              sumDiv.innerHTML = renderMarkdown(sd.result.summary);
             }
           }
         } catch (e) {}
@@ -958,7 +1007,6 @@
     sendBtn.disabled = true;
 
     addMessage("user", escapeHtml(text));
-    const loading = addLoadingIndicator();
 
     const body = {
       query: text,
@@ -969,27 +1017,81 @@
       body.scope = currentScope;
     }
 
+    // Create the assistant message div for streaming
+    const msgDiv = document.createElement("div");
+    msgDiv.className = "message assistant";
+    msgDiv.innerHTML = '<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+    chat.appendChild(msgDiv);
+    scrollToBottom();
+
+    let fullText = "";
+    let contexts = null;
+
     try {
-      const res = await fetch("/api/query", {
+      const res = await fetch("/api/query/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
 
-      const data = await res.json();
-      chat.removeChild(loading);
-
-      if (data.error) {
-        addMessage("assistant", escapeHtml("Error: " + data.error));
-      } else {
-        // Track session ID returned by server
-        if (data.session_id) sessionId = data.session_id;
-        const answerHtml = escapeHtml(data.answer) + buildSourcesHtml(data.contexts);
-        addMessage("assistant", answerHtml);
+      if (!res.ok) {
+        const errData = await res.json();
+        msgDiv.innerHTML = escapeHtml("Error: " + (errData.error || "Request failed"));
+        return;
       }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let started = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();  // Keep incomplete line
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6);
+          let event;
+          try { event = JSON.parse(jsonStr); } catch (e) { continue; }
+
+          if (event.session_id) sessionId = event.session_id;
+
+          if (event.type === "no_results") {
+            msgDiv.innerHTML = escapeHtml(event.answer);
+          } else if (event.type === "contexts") {
+            contexts = event.contexts;
+          } else if (event.type === "token") {
+            if (!started) {
+              msgDiv.innerHTML = "";
+              msgDiv.style.whiteSpace = "normal";
+              started = true;
+            }
+            fullText += event.token;
+            msgDiv.innerHTML = renderMarkdown(fullText);
+            scrollToBottom();
+          } else if (event.type === "done") {
+            // Append sources
+            if (contexts) {
+              msgDiv.innerHTML = renderMarkdown(fullText) + buildSourcesHtml(contexts);
+            }
+          } else if (event.type === "error") {
+            msgDiv.innerHTML = escapeHtml("Error: " + event.error);
+          }
+        }
+      }
+
+      // If we got no tokens (e.g., error before streaming started), show what we have
+      if (!started && fullText === "" && !msgDiv.innerHTML.startsWith("Error")) {
+        msgDiv.innerHTML = renderMarkdown(fullText) || "No response received.";
+      }
+
     } catch (err) {
-      chat.removeChild(loading);
-      addMessage("assistant", escapeHtml("Error: Could not reach the server. " + err.message));
+      msgDiv.innerHTML = escapeHtml("Error: Could not reach the server. " + err.message);
     } finally {
       sendBtn.disabled = false;
       input.focus();
@@ -1084,6 +1186,61 @@
       clearInterval(logsTimer);
       logsTimer = null;
     }
+  }
+
+  // --- Dark mode ---
+
+  themeToggle.addEventListener("click", function() {
+    const html = document.documentElement;
+    const isDark = html.getAttribute("data-theme") === "dark";
+    html.setAttribute("data-theme", isDark ? "light" : "dark");
+    themeToggle.textContent = isDark ? "\u263D" : "\u2600";
+    localStorage.setItem("theme", isDark ? "light" : "dark");
+  });
+
+  // Restore saved theme
+  (function() {
+    const saved = localStorage.getItem("theme");
+    if (saved === "dark") {
+      document.documentElement.setAttribute("data-theme", "dark");
+      themeToggle.textContent = "\u2600";
+    }
+  })();
+
+  // --- Simple markdown renderer ---
+
+  function renderMarkdown(text) {
+    // Escape HTML first for safety
+    let html = escapeHtml(text);
+
+    // Code blocks (```)
+    html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Bold
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // Italic
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    // Headers (###, ##, #)
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    // Blockquotes
+    html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+    // Unordered lists
+    html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+    // Ordered lists
+    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+    // Paragraphs (double newlines)
+    html = html.replace(/\n\n/g, '</p><p>');
+    html = '<p>' + html + '</p>';
+    // Clean up empty paragraphs
+    html = html.replace(/<p>\s*<\/p>/g, '');
+    // Single newlines inside paragraphs
+    html = html.replace(/\n/g, '<br>');
+
+    return html;
   }
 
   // --- Init ---

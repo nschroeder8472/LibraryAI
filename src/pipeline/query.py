@@ -1,5 +1,5 @@
 """Query pipeline orchestration with conversation support."""
-from typing import Dict, Optional
+from typing import Dict, Generator, List, Optional, Tuple
 import logging
 
 from ..retrieval.retriever import Retriever
@@ -78,61 +78,23 @@ class QueryPipeline:
         """
         logger.info(f"Processing query: {query[:50]}...")
 
-        # Step 1: Rewrite query if there's conversation context
-        retrieval_query = query
-        if conversation_history:
-            retrieval_query = self._rewrite_query(query, conversation_history)
-            if retrieval_query != query:
-                logger.info(f"Rewritten query: {retrieval_query[:80]}...")
-
-        # Step 2: Retrieve relevant chunks (with optional scope filtering)
-        logger.info("Retrieving relevant context...")
-        if query_type == "character_evolution":
-            retrieved_chunks = self.retriever.retrieve_chronological(
-                retrieval_query, scope=scope
-            )
-        else:
-            retrieved_chunks = self.retriever.retrieve(retrieval_query, scope=scope)
+        _, retrieved_chunks = self._retrieve_and_rerank(
+            query, query_type, scope, conversation_history
+        )
 
         if not retrieved_chunks:
             return {
                 "answer": "I couldn't find relevant information in your library to answer this question.",
                 "contexts": [],
-                "query": query
+                "query": query,
             }
 
-        # Step 3: Rerank for precision
-        if self.reranker:
-            logger.info("Reranking retrieved chunks...")
-            retrieved_chunks = self.reranker.rerank(retrieval_query, retrieved_chunks)
+        prompt = self._build_prompt(
+            query, query_type, retrieved_chunks,
+            reading_history=reading_history,
+            conversation_history=conversation_history,
+        )
 
-        # Step 4: Format context
-        context = self.retriever.format_context(retrieved_chunks)
-
-        # Step 5: Select prompt template (all now accept conversation_history)
-        if query_type == "recommendation":
-            prompt = self.templates.recommendation_prompt(
-                query, context, reading_history,
-                conversation_history=conversation_history,
-            )
-        elif query_type == "passage_location":
-            prompt = self.templates.passage_location_prompt(
-                query, context,
-                conversation_history=conversation_history,
-            )
-        elif query_type == "character_evolution":
-            # Extract a character name hint from the query for the prompt
-            character = query  # The LLM will figure out the character
-            prompt = self.templates.character_evolution_prompt(
-                query, character, context,
-            )
-        else:  # default to qa
-            prompt = self.templates.qa_prompt(
-                query, context,
-                conversation_history=conversation_history,
-            )
-
-        # Step 6: Generate answer
         logger.info("Generating answer...")
         answer = self.llm.generate(prompt)
 
@@ -140,8 +102,110 @@ class QueryPipeline:
             "answer": answer,
             "contexts": retrieved_chunks,
             "query": query,
-            "query_type": query_type
+            "query_type": query_type,
         }
+
+    def _build_prompt(self, query: str, query_type: str,
+                      retrieved_chunks: List[Dict],
+                      reading_history: Optional[str] = None,
+                      conversation_history: str = "") -> str:
+        """Build the LLM prompt from query type and retrieved context."""
+        context = self.retriever.format_context(retrieved_chunks)
+
+        if query_type == "recommendation":
+            return self.templates.recommendation_prompt(
+                query, context, reading_history,
+                conversation_history=conversation_history,
+            )
+        elif query_type == "passage_location":
+            return self.templates.passage_location_prompt(
+                query, context,
+                conversation_history=conversation_history,
+            )
+        elif query_type == "character_evolution":
+            return self.templates.character_evolution_prompt(
+                query, query, context,
+            )
+        else:
+            return self.templates.qa_prompt(
+                query, context,
+                conversation_history=conversation_history,
+            )
+
+    def _retrieve_and_rerank(self, query: str, query_type: str,
+                             scope: Optional[Dict],
+                             conversation_history: str
+                             ) -> Tuple[str, List[Dict]]:
+        """Run retrieval and reranking, return (retrieval_query, chunks).
+
+        Returns an empty list if no chunks match.
+        """
+        retrieval_query = query
+        if conversation_history:
+            retrieval_query = self._rewrite_query(query, conversation_history)
+            if retrieval_query != query:
+                logger.info(f"Rewritten query: {retrieval_query[:80]}...")
+
+        logger.info("Retrieving relevant context...")
+        if query_type == "character_evolution":
+            retrieved_chunks = self.retriever.retrieve_chronological(
+                retrieval_query, scope=scope
+            )
+        else:
+            retrieved_chunks = self.retriever.retrieve(
+                retrieval_query, scope=scope
+            )
+
+        if self.reranker and retrieved_chunks:
+            logger.info("Reranking retrieved chunks...")
+            retrieved_chunks = self.reranker.rerank(
+                retrieval_query, retrieved_chunks
+            )
+
+        return retrieval_query, retrieved_chunks
+
+    def query_stream(self, query: str, query_type: str = "qa",
+                     reading_history: Optional[str] = None,
+                     scope: Optional[Dict] = None,
+                     conversation_history: str = ""
+                     ) -> Generator[Dict, None, None]:
+        """Stream a query response token-by-token.
+
+        Yields dicts with either:
+          {"type": "contexts", "contexts": [...]} — once, at the start
+          {"type": "token", "token": "..."} — for each generated token
+          {"type": "done"} — when generation is complete
+
+        If no chunks are retrieved, yields a single "no_results" message.
+        """
+        logger.info(f"Processing streaming query: {query[:50]}...")
+
+        _, retrieved_chunks = self._retrieve_and_rerank(
+            query, query_type, scope, conversation_history
+        )
+
+        if not retrieved_chunks:
+            yield {
+                "type": "no_results",
+                "answer": "I couldn't find relevant information in your library to answer this question.",
+            }
+            return
+
+        # Send contexts first so the UI can display sources
+        yield {"type": "contexts", "contexts": retrieved_chunks}
+
+        # Build prompt and stream generation
+        prompt = self._build_prompt(
+            query, query_type, retrieved_chunks,
+            reading_history=reading_history,
+            conversation_history=conversation_history,
+        )
+
+        logger.info("Streaming answer...")
+        for token in self.llm.generate_stream(prompt):
+            yield {"type": "token", "token": token}
+
+        yield {"type": "done"}
 
     def _rewrite_query(self, query: str, conversation_history: str) -> str:
         """Rewrite a query using conversation context to make it standalone.

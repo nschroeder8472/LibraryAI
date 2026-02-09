@@ -7,6 +7,7 @@ from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..embeddings.vector_store import VectorStore
@@ -362,5 +363,103 @@ def create_app() -> FastAPI:
                 content={"error": str(e)},
                 status_code=500,
             )
+
+    # --- Streaming query endpoint ---
+
+    @app.post("/api/query/stream")
+    def query_stream(request: QueryRequest):
+        """Stream a query response via Server-Sent Events."""
+        import json as _json
+
+        if pipeline is None:
+            if indexing_status["active"]:
+                msg = "Indexing is in progress. Please wait until it completes."
+            else:
+                msg = "No index available. Please build one first using the setup panel."
+            return JSONResponse(
+                content={"error": msg},
+                status_code=503,
+            )
+
+        # Prepare session and scope before entering the generator
+        session = session_manager.get_or_create_session(request.session_id)
+        session_id = session.session_id
+
+        scope = None
+        if request.scope and request.scope.type:
+            scope = {"type": request.scope.type}
+            if request.scope.title:
+                scope["title"] = request.scope.title
+            if request.scope.name:
+                scope["name"] = request.scope.name
+            session.scope = scope
+
+        conversation_history = session.format_history_for_prompt(
+            max_turns=pipeline.max_conversation_turns
+        )
+        session_manager.add_message(session_id, "user", request.query)
+
+        def event_generator():
+            full_answer = []
+            try:
+                for chunk in pipeline.query_stream(
+                    request.query,
+                    query_type=request.query_type,
+                    scope=scope,
+                    conversation_history=conversation_history,
+                ):
+                    chunk_type = chunk.get("type")
+
+                    if chunk_type == "no_results":
+                        data = _json.dumps({
+                            "type": "no_results",
+                            "answer": chunk["answer"],
+                            "session_id": session_id,
+                        })
+                        yield f"data: {data}\n\n"
+                        return
+
+                    if chunk_type == "contexts":
+                        contexts = [
+                            {k: v for k, v in ctx.items()
+                             if k not in ("embedding", "parent_text",
+                                          "child_text", "parent_id")}
+                            for ctx in chunk["contexts"]
+                        ]
+                        data = _json.dumps({
+                            "type": "contexts",
+                            "contexts": contexts,
+                            "session_id": session_id,
+                        })
+                        yield f"data: {data}\n\n"
+
+                    elif chunk_type == "token":
+                        token = chunk["token"]
+                        full_answer.append(token)
+                        data = _json.dumps({"type": "token", "token": token})
+                        yield f"data: {data}\n\n"
+
+                    elif chunk_type == "done":
+                        answer_text = "".join(full_answer).strip()
+                        session_manager.add_message(
+                            session_id, "assistant", answer_text
+                        )
+                        data = _json.dumps({"type": "done"})
+                        yield f"data: {data}\n\n"
+
+            except Exception as e:
+                logger.error(f"Streaming query failed: {e}", exc_info=True)
+                data = _json.dumps({"type": "error", "error": str(e)})
+                yield f"data: {data}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     return app
