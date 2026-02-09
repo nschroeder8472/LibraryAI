@@ -13,6 +13,7 @@ from ..embeddings.vector_store import VectorStore
 from ..pipeline.indexing import IndexingPipeline
 from ..pipeline.query import QueryPipeline
 from ..config import config
+from ..utils.log_buffer import log_buffer
 from .session import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -210,6 +211,13 @@ def create_app() -> FastAPI:
     @app.get("/api/index/status")
     def index_status():
         return indexing_status
+
+    # --- Logs endpoint ---
+
+    @app.get("/api/logs")
+    def get_logs(level: str = None, limit: int = 200):
+        """Return recent log entries from the in-memory buffer."""
+        return log_buffer.get_logs(level=level, limit=limit)
 
     # --- Query endpoint ---
 
