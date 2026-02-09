@@ -1,7 +1,8 @@
-"""Language model utilities with multi-provider support.
+"""Language model utilities with local-only provider support.
 
-Supports local HuggingFace models, OpenAI API, Anthropic API, and Ollama.
+Supports local HuggingFace models and Ollama (local server).
 The backend is selected via the GENERATION_BACKEND environment variable.
+All inference runs locally — no data leaves your machine.
 """
 from abc import ABC, abstractmethod
 import logging
@@ -103,84 +104,13 @@ class LocalLanguageModel(BaseLanguageModel):
         return generated_text.strip()
 
 
-class OpenAILanguageModel(BaseLanguageModel):
-    """OpenAI API-based language model."""
-
-    def __init__(self, model_name: str = "gpt-4o-mini",
-                 max_new_tokens: int = 512,
-                 temperature: float = 0.1, api_key: str = None):
-        import os
-        try:
-            from openai import OpenAI
-        except ImportError:
-            raise ImportError(
-                "openai package is required for OpenAI backend. "
-                "Install it with: pip install openai"
-            )
-
-        self.model_name = model_name
-        self.max_new_tokens = max_new_tokens
-        self.temperature = temperature
-
-        key = api_key or os.environ.get("OPENAI_API_KEY")
-        if not key:
-            raise ValueError(
-                "OpenAI API key required. Set OPENAI_API_KEY env var "
-                "or pass api_key parameter."
-            )
-        self.client = OpenAI(api_key=key)
-        logger.info(f"OpenAI client initialized with model: {model_name}")
-
-    def generate(self, prompt: str) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=self.max_new_tokens,
-            temperature=self.temperature,
-        )
-        return response.choices[0].message.content.strip()
-
-
-class AnthropicLanguageModel(BaseLanguageModel):
-    """Anthropic API-based language model."""
-
-    def __init__(self, model_name: str = "claude-sonnet-4-20250514",
-                 max_new_tokens: int = 512,
-                 temperature: float = 0.1, api_key: str = None):
-        import os
-        try:
-            import anthropic
-        except ImportError:
-            raise ImportError(
-                "anthropic package is required for Anthropic backend. "
-                "Install it with: pip install anthropic"
-            )
-
-        self.model_name = model_name
-        self.max_new_tokens = max_new_tokens
-        self.temperature = temperature
-
-        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not key:
-            raise ValueError(
-                "Anthropic API key required. Set ANTHROPIC_API_KEY env var "
-                "or pass api_key parameter."
-            )
-        self.client = anthropic.Anthropic(api_key=key)
-        logger.info(f"Anthropic client initialized with model: {model_name}")
-
-    def generate(self, prompt: str) -> str:
-        response = self.client.messages.create(
-            model=self.model_name,
-            max_tokens=self.max_new_tokens,
-            temperature=self.temperature,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.content[0].text.strip()
-
-
 class OllamaLanguageModel(BaseLanguageModel):
-    """Ollama API-based language model (local server)."""
+    """Ollama-based language model (local server, no data leaves your machine).
+
+    Ollama runs models locally and exposes them via a REST API.
+    Install: https://ollama.com
+    Pull a model: ollama pull llama3.2
+    """
 
     def __init__(self, model_name: str = "llama3.2",
                  max_new_tokens: int = 512,
@@ -214,8 +144,14 @@ class OllamaLanguageModel(BaseLanguageModel):
             url, data=payload,
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read())
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+        except urllib.error.URLError as e:
+            raise ConnectionError(
+                f"Could not connect to Ollama at {self.base_url}. "
+                f"Make sure Ollama is running (ollama serve). Error: {e}"
+            ) from e
 
         return data.get("response", "").strip()
 
@@ -224,11 +160,13 @@ class OllamaLanguageModel(BaseLanguageModel):
 LanguageModel = LocalLanguageModel
 
 
-def create_language_model(backend: str = "local", **kwargs) -> BaseLanguageModel:
+def create_language_model(backend: str = "ollama", **kwargs) -> BaseLanguageModel:
     """Factory function to create the appropriate language model.
 
+    Both backends run entirely locally — no data leaves your machine.
+
     Args:
-        backend: One of 'local', 'openai', 'anthropic', 'ollama'
+        backend: 'ollama' (recommended) or 'local' (HuggingFace transformers)
         **kwargs: Arguments passed to the specific model class
 
     Returns:
@@ -236,8 +174,6 @@ def create_language_model(backend: str = "local", **kwargs) -> BaseLanguageModel
     """
     backends = {
         "local": LocalLanguageModel,
-        "openai": OpenAILanguageModel,
-        "anthropic": AnthropicLanguageModel,
         "ollama": OllamaLanguageModel,
     }
 

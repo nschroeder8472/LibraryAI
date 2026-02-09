@@ -206,19 +206,18 @@ class RerankConfig:
 class GenerationConfig:
     """Configuration for language model generation.
 
-    Supports multiple backends: 'local' (HuggingFace), 'openai', 'anthropic', 'ollama'.
+    Supports local-only backends: 'ollama' (recommended) or 'local' (HuggingFace).
+    All inference runs locally — no data leaves your machine.
     Set GENERATION_BACKEND env var to switch.
     """
 
-    # Backend provider: 'local', 'openai', 'anthropic', 'ollama'
-    backend: str = "local"
+    # Backend provider: 'ollama' (recommended) or 'local' (HuggingFace transformers)
+    backend: str = "ollama"
 
     # Model identifier (meaning depends on backend)
-    # local: HuggingFace model name
-    # openai: OpenAI model name (e.g. gpt-4o-mini)
-    # anthropic: Anthropic model name (e.g. claude-sonnet-4-20250514)
-    # ollama: Ollama model name (e.g. llama3.2)
-    model_name: str = "mistralai/Mistral-7B-Instruct-v0.3"
+    # ollama: Ollama model name (e.g. llama3.2, mistral, phi3)
+    # local: HuggingFace model name (e.g. meta-llama/Llama-3.2-1B)
+    model_name: str = "llama3.2"
 
     # Device for inference (local backend only)
     device: str = "cpu"
