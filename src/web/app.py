@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from ..embeddings.vector_store import VectorStore
 from ..pipeline.indexing import IndexingPipeline
 from ..pipeline.query import QueryPipeline
+from ..pipeline.summary import SummaryPipeline
 from ..config import config
 from ..utils.log_buffer import log_buffer
 from .session import SessionManager
@@ -20,9 +21,12 @@ logger = logging.getLogger(__name__)
 
 # Module-level state
 pipeline: QueryPipeline | None = None
+summary_pipeline: SummaryPipeline | None = None
 session_manager = SessionManager()
 indexing_status: dict = {"active": False, "message": "", "progress": "", "error": None}
+summary_status: dict = {"active": False, "message": "", "error": None}
 _indexing_lock = threading.Lock()
+_summary_lock = threading.Lock()
 
 
 class ScopeModel(BaseModel):
@@ -36,6 +40,13 @@ class QueryRequest(BaseModel):
     query_type: str = "qa"
     scope: Optional[ScopeModel] = None
     session_id: Optional[str] = None
+
+
+class SummaryRequest(BaseModel):
+    type: str  # "book" or "series"
+    title: Optional[str] = None  # book title
+    name: Optional[str] = None   # series name
+    force: bool = False
 
 
 class IndexRequest(BaseModel):
@@ -53,7 +64,7 @@ class _ProgressHandler(logging.Handler):
 
 def _run_indexing(library_dir: str):
     """Run indexing in a background thread."""
-    global pipeline
+    global pipeline, summary_pipeline
 
     handler = _ProgressHandler()
     handler.setLevel(logging.INFO)
@@ -69,6 +80,7 @@ def _run_indexing(library_dir: str):
         vector_store = idx_pipeline.index_library(Path(library_dir))
 
         pipeline = QueryPipeline(vector_store)
+        summary_pipeline = SummaryPipeline(vector_store, llm=pipeline.llm)
         indexing_status["message"] = "Indexing complete"
         indexing_status["progress"] = "Done"
         logger.info("Background indexing complete, query pipeline ready")
@@ -84,7 +96,7 @@ def _run_indexing(library_dir: str):
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Load vector store and query pipeline on startup."""
-    global pipeline
+    global pipeline, summary_pipeline
     try:
         logger.info("Loading vector store...")
         vector_store = VectorStore.load(config.data.vector_store_dir)
@@ -93,6 +105,7 @@ async def _lifespan(app: FastAPI):
 
         logger.info("Initializing query pipeline...")
         pipeline = QueryPipeline(vector_store)
+        summary_pipeline = SummaryPipeline(vector_store, llm=pipeline.llm)
         logger.info("Query pipeline ready")
     except Exception as e:
         logger.warning(f"Could not load existing index: {e}")
@@ -218,6 +231,70 @@ def create_app() -> FastAPI:
     def get_logs(level: str = None, limit: int = 200):
         """Return recent log entries from the in-memory buffer."""
         return log_buffer.get_logs(level=level, limit=limit)
+
+    # --- Summary endpoints ---
+
+    @app.post("/api/summary")
+    def generate_summary(request: SummaryRequest):
+        """Generate a book or series summary."""
+        if pipeline is None:
+            return JSONResponse(
+                content={"error": "No index available"},
+                status_code=503,
+            )
+        if summary_pipeline is None:
+            return JSONResponse(
+                content={"error": "Summary pipeline not initialized"},
+                status_code=503,
+            )
+
+        with _summary_lock:
+            if summary_status["active"]:
+                return JSONResponse(
+                    content={"error": "A summary is already being generated"},
+                    status_code=409,
+                )
+            summary_status["active"] = True
+            summary_status["error"] = None
+
+        def _run():
+            try:
+                if request.type == "book" and request.title:
+                    summary_status["message"] = f"Summarizing '{request.title}'..."
+                    result = summary_pipeline.summarize_book(
+                        request.title, force=request.force
+                    )
+                elif request.type == "series" and request.name:
+                    summary_status["message"] = f"Summarizing series '{request.name}'..."
+                    result = summary_pipeline.summarize_series(
+                        request.name, force=request.force
+                    )
+                else:
+                    summary_status["error"] = "Invalid summary request"
+                    return
+
+                summary_status["message"] = "done"
+                summary_status["result"] = result
+            except Exception as e:
+                logger.error(f"Summary generation failed: {e}", exc_info=True)
+                summary_status["error"] = str(e)
+                summary_status["message"] = "Summary generation failed"
+            finally:
+                summary_status["active"] = False
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+        label = request.title or request.name or ""
+        return JSONResponse(
+            content={"message": f"Summary generation started for '{label}'"},
+            status_code=202,
+        )
+
+    @app.get("/api/summary/status")
+    def get_summary_status():
+        """Check summary generation progress."""
+        return summary_status
 
     # --- Query endpoint ---
 

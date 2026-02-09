@@ -87,7 +87,12 @@ class QueryPipeline:
 
         # Step 2: Retrieve relevant chunks (with optional scope filtering)
         logger.info("Retrieving relevant context...")
-        retrieved_chunks = self.retriever.retrieve(retrieval_query, scope=scope)
+        if query_type == "character_evolution":
+            retrieved_chunks = self.retriever.retrieve_chronological(
+                retrieval_query, scope=scope
+            )
+        else:
+            retrieved_chunks = self.retriever.retrieve(retrieval_query, scope=scope)
 
         if not retrieved_chunks:
             return {
@@ -114,6 +119,12 @@ class QueryPipeline:
             prompt = self.templates.passage_location_prompt(
                 query, context,
                 conversation_history=conversation_history,
+            )
+        elif query_type == "character_evolution":
+            # Extract a character name hint from the query for the prompt
+            character = query  # The LLM will figure out the character
+            prompt = self.templates.character_evolution_prompt(
+                query, character, context,
             )
         else:  # default to qa
             prompt = self.templates.qa_prompt(

@@ -154,6 +154,22 @@
     text-align: center;
   }
 
+  .summarize-btn {
+    display: none;
+    margin: 8px 14px;
+    padding: 6px 12px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    width: calc(100% - 28px);
+  }
+  .summarize-btn:hover { background: var(--primary-hover); }
+  .summarize-btn:disabled { background: #93c5fd; cursor: not-allowed; }
+  .summarize-btn.visible { display: block; }
+
   /* ===== Main area ===== */
   .main-area {
     flex: 1;
@@ -415,6 +431,7 @@
       <option value="qa">Q&amp;A</option>
       <option value="recommendation">Recommendation</option>
       <option value="passage_location">Passage Location</option>
+      <option value="character_evolution">Character Evolution</option>
     </select>
     <button id="new-chat-btn" title="Start a new conversation">New Chat</button>
     <button id="reindex-btn" style="display:none;">Re-index</button>
@@ -429,6 +446,7 @@
     <div class="sidebar-content" id="sidebar-content">
       <div class="sidebar-loading" id="sidebar-loading">Loading library...</div>
     </div>
+    <button class="summarize-btn" id="summarize-btn">Summarize Selection</button>
   </div>
 
   <!-- Main area -->
@@ -500,6 +518,7 @@
   const logsPanel = document.getElementById("logs-panel");
   const logsCloseBtn = document.getElementById("logs-close-btn");
   const logsContent = document.getElementById("logs-content");
+  const summarizeBtn = document.getElementById("summarize-btn");
 
   // State
   let sessionId = null;
@@ -587,8 +606,11 @@
         : scope.title;
       scopeBadgeText.textContent = label;
       scopeBadgeBar.classList.add("visible");
+      summarizeBtn.classList.add("visible");
+      summarizeBtn.textContent = "Summarize " + (scope.type === "series" ? "Series" : "Book");
     } else {
       scopeBadgeBar.classList.remove("visible");
+      summarizeBtn.classList.remove("visible");
     }
     // Update active state in sidebar
     document.querySelectorAll(".scope-item").forEach(function(el) {
@@ -722,6 +744,62 @@
   }
 
   newChatBtn.addEventListener("click", startNewChat);
+
+  // --- Summarize ---
+
+  summarizeBtn.addEventListener("click", async function() {
+    if (!currentScope) return;
+
+    summarizeBtn.disabled = true;
+    const origText = summarizeBtn.textContent;
+    summarizeBtn.textContent = "Generating...";
+
+    const body = {
+      type: currentScope.type,
+      title: currentScope.title || null,
+      name: currentScope.name || null,
+    };
+
+    try {
+      const res = await fetch("/api/summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        addMessage("assistant", "Summary failed: " + (data.error || "Unknown error"));
+        summarizeBtn.disabled = false;
+        summarizeBtn.textContent = origText;
+        return;
+      }
+
+      addMessage("assistant", data.message + " This may take a few minutes...");
+
+      // Poll for completion
+      const summaryPoll = setInterval(async function() {
+        try {
+          const sr = await fetch("/api/summary/status");
+          const sd = await sr.json();
+          if (!sd.active) {
+            clearInterval(summaryPoll);
+            summarizeBtn.disabled = false;
+            summarizeBtn.textContent = origText;
+            if (sd.error) {
+              addMessage("assistant", "Summary failed: " + sd.error);
+            } else if (sd.result) {
+              addMessage("assistant", sd.result.summary);
+            }
+          }
+        } catch (e) {}
+      }, 3000);
+    } catch (err) {
+      addMessage("assistant", "Error: " + err.message);
+      summarizeBtn.disabled = false;
+      summarizeBtn.textContent = origText;
+    }
+  });
 
   // --- Health check ---
 

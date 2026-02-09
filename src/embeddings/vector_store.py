@@ -245,6 +245,54 @@ class VectorStore:
             "total_chunks": count,
         }
 
+    def get_chunks_by_book(self, book_title: str) -> List[Dict]:
+        """Get all chunks for a specific book, sorted by chapter and chunk order.
+
+        Args:
+            book_title: The book title to retrieve chunks for
+
+        Returns:
+            List of chunk dicts sorted chronologically
+        """
+        if self._collection.count() == 0:
+            return []
+
+        results = self._collection.get(
+            where={"book_title": book_title},
+            include=["documents", "metadatas"],
+        )
+
+        chunks = []
+        for i, meta in enumerate(results["metadatas"]):
+            chunk = {
+                "text": meta.get("parent_text") or results["documents"][i],
+                "book_title": meta.get("book_title", ""),
+                "book_author": meta.get("book_author", ""),
+                "chapter_title": meta.get("chapter_title", ""),
+                "chapter_order": meta.get("chapter_order", 0),
+                "chunk_index": meta.get("chunk_index", 0),
+                "series_name": meta.get("series_name", ""),
+                "book_order_in_series": meta.get("book_order_in_series", 0),
+                "global_order": meta.get("global_order", 0),
+                "parent_id": meta.get("parent_id", ""),
+            }
+            chunks.append(chunk)
+
+        # Deduplicate by parent_id (keep one child per parent)
+        seen_parents = set()
+        unique = []
+        for c in chunks:
+            pid = c.get("parent_id", "")
+            if pid and pid in seen_parents:
+                continue
+            if pid:
+                seen_parents.add(pid)
+            unique.append(c)
+
+        # Sort by chapter_order then chunk_index
+        unique.sort(key=lambda c: (c["chapter_order"], c["chunk_index"]))
+        return unique
+
     def get_unique_books(self) -> List[Dict]:
         """Get a list of unique books in the index with their metadata.
 
@@ -298,7 +346,12 @@ class VectorStore:
         for s in series_map.values():
             s["books"].sort(key=lambda b: b["order"])
 
+        # Return series as a dict mapping name -> book list for easy UI rendering
+        series_dict = {}
+        for s in series_map.values():
+            series_dict[s["series_name"]] = s["books"]
+
         return {
-            "series": sorted(series_map.values(), key=lambda s: s["series_name"]),
+            "series": series_dict,
             "ungrouped": ungrouped,
         }

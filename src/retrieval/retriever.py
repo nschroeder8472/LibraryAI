@@ -101,6 +101,24 @@ class Retriever:
             deduplicated.append(chunk)
         return deduplicated
 
+    def retrieve_chronological(self, query: str,
+                               scope: Optional[Dict] = None) -> List[Dict]:
+        """Retrieve chunks and sort them chronologically by global_order.
+
+        Useful for character evolution and timeline questions where the
+        order of events matters more than similarity ranking.
+
+        Args:
+            query: User query text
+            scope: Optional scope filter
+
+        Returns:
+            List of relevant chunks sorted by global_order
+        """
+        chunks = self.retrieve(query, scope=scope)
+        chunks.sort(key=lambda c: c.get("global_order", 0))
+        return chunks
+
     def format_context(self, chunks: List[Dict]) -> str:
         """
         Format retrieved chunks into context string for prompt.

@@ -97,6 +97,65 @@ Location:"""
         return prompt
 
     @staticmethod
+    def chapter_summary_prompt(book_title: str, chapter_title: str,
+                               chapter_text: str) -> str:
+        """Summarize a single chapter."""
+        return f"""Summarize the following chapter concisely. Focus on key events, character actions, and plot developments. Keep the summary to 2-4 paragraphs.
+
+Book: "{book_title}"
+Chapter: {chapter_title}
+
+Text:
+{chapter_text}
+
+Summary:"""
+
+    @staticmethod
+    def book_summary_prompt(book_title: str, book_author: str,
+                            chapter_summaries: str) -> str:
+        """Generate a comprehensive book summary from chapter summaries."""
+        return f"""You are summarizing a book based on chapter-by-chapter summaries. Write a cohesive, engaging summary that covers the main plot, key characters, and major themes. Keep it to 3-5 paragraphs.
+
+Book: "{book_title}" by {book_author}
+
+Chapter summaries:
+{chapter_summaries}
+
+Book summary:"""
+
+    @staticmethod
+    def series_summary_prompt(series_name: str, book_summaries: str) -> str:
+        """Generate a series overview from book summaries."""
+        return f"""You are summarizing a book series based on individual book summaries. Write an engaging overview that covers the overarching plot, main characters, and how the series evolves across books. Keep it to 3-5 paragraphs.
+
+Series: "{series_name}"
+
+Book summaries:
+{book_summaries}
+
+Series overview:"""
+
+    @staticmethod
+    def character_evolution_prompt(query: str, character: str,
+                                   chronological_context: str) -> str:
+        """Answer questions about character changes across books."""
+        return f"""You are a knowledgeable librarian answering a question about a character's development across a book series. The passages below are sorted chronologically.
+
+Character: {character}
+Question: {query}
+
+Chronological passages:
+{chronological_context}
+
+Instructions:
+- Trace the character's development across the passages in chronological order.
+- Note specific changes, events, or turning points.
+- Cite the book and chapter for each key detail.
+- If the passages don't contain enough information, say so.
+
+Answer:"""
+
+    @staticmethod
     def query_rewrite_prompt(conversation_history: str,
                              current_query: str) -> str:
         """Rewrite a follow-up query as a standalone question.
