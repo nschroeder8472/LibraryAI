@@ -47,6 +47,12 @@ def setup_logging(
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
+    # In-memory buffer handler (for the web UI logs panel)
+    from .log_buffer import log_buffer
+    log_buffer.setLevel(level)
+    log_buffer.setFormatter(formatter)
+    logger.addHandler(log_buffer)
+
     # File handler (if log file specified)
     if log_file is not None:
         log_file.parent.mkdir(parents=True, exist_ok=True)
